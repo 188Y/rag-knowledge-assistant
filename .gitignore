@@ -1,0 +1,42 @@
+# ===== 环境变量与密钥 =====
+.env
+.env.local
+*.env
+
+# ===== Python 相关 =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+env/
+ENV/
+
+# ===== RAG 项目特有 =====
+# 向量库数据（体积大，可重新生成）
+chroma_db/
+# 日志
+logs/
+*.log
+# 模型缓存
+.cache/
+*.safetensors
+*.bin
+
+# ===== IDE / 编辑器 =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db

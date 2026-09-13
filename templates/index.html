@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG 知识库助手</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header class="hero">
+            <h1>📚 RAG 知识库助手</h1>
+            <p>上传文档自动切分入库，提问时基于你的文档检索并生成回答，答案附参考来源。</p>
+        </header>
+
+        <!-- 功能区 1：文档入库 -->
+        <section class="card">
+            <h2>📤 上传文档到知识库</h2>
+            <p class="desc">支持 .txt / .pdf / .docx，上传后文档会被切分并存入向量库。</p>
+
+            <div class="dropzone" id="dropZone" role="button" tabindex="0"
+                 aria-label="选择或拖拽文件上传">
+                <span class="dz-icon">🗂️</span>
+                把文件拖到这里，或点击选择
+                <div class="dz-formats">.txt · .pdf · .docx</div>
+            </div>
+            <input type="file" id="fileInput" accept=".txt,.pdf,.docx" hidden>
+
+            <div class="file-chip" id="fileChip">
+                <span class="f-icon" id="fileIcon">📄</span>
+                <div class="f-meta">
+                    <div class="f-name" id="fileName"></div>
+                    <div class="f-size" id="fileSize"></div>
+                </div>
+                <button class="btn btn-ghost btn-icon" id="fileRemove" title="移除文件"
+                        aria-label="移除已选文件">✕</button>
+            </div>
+
+            <div class="upload-actions">
+                <button class="btn btn-primary" id="uploadBtn">上传入库</button>
+            </div>
+
+            <div class="status" id="uploadStatus" role="status" aria-live="polite"></div>
+        </section>
+
+        <!-- 功能区 2：知识库问答 -->
+        <section class="card">
+            <h2>💬 向知识库提问</h2>
+            <p class="desc">回答严格基于已上传的文档内容生成，并标注参考来源。</p>
+
+            <div class="chat" id="chat" aria-live="polite">
+                <div class="chat-empty" id="chatEmpty">
+                    还没有对话，试试在下方输入问题，例如「年假怎么申请？」
+                </div>
+            </div>
+
+            <div class="ask-row">
+                <input type="text" id="questionInput" placeholder="例如：年假怎么申请？"
+                       autocomplete="off">
+                <button class="btn btn-primary" id="askBtn">提问</button>
+            </div>
+        </section>
+
+        <!-- 功能区 3：已入库文档 -->
+        <section class="card">
+            <div class="doc-head">
+                <h2>📋 已入库文档</h2>
+                <span class="badge" id="docCount" hidden></span>
+                <span class="spacer"></span>
+                <button class="btn btn-ghost btn-icon" id="refreshBtn" title="刷新列表"
+                        aria-label="刷新文档列表">⟳</button>
+            </div>
+            <ul class="doc-list" id="docList">
+                <li class="doc-empty" id="docEmpty">正在加载…</li>
+            </ul>
+        </section>
+
+        <footer>基于 Flask + ChromaDB + GLM 构建 · 仅使用已上传文档作答</footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
