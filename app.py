@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from PyPDF2 import PdfReader
 from docx import Document
-from rag_engine import add_document, search, list_documents
+from rag_engine import add_document, search_enhanced, list_documents
 
 load_dotenv()
 
@@ -77,7 +77,7 @@ def ask():
     
     try:
         # 1. 检索相关片段
-        retrieved = search(question, top_k=3)
+        retrieved = search_enhanced(question, top_k=3)
         
         if not retrieved:
             return jsonify({"answer": "知识库中还没有相关文档，请先上传。"})
