@@ -23,7 +23,7 @@ _bm25_docs = None
 embedding_model = SentenceTransformer('BAAI/bge-small-zh-v1.5')
 
 # 初始化智谱客户端（用于查询改写和回答生成）
-zhipu_client = ZhipuAI(api_key=os.getenv("OPENAI_API_KEY"))  
+zhipu_client = ZhipuAI(api_key=os.getenv("ZHIPU_API_KEY"))  
 
 # 初始化向量库（持久化到本地）
 chroma_client = chromadb.PersistentClient(path="./chroma_db")

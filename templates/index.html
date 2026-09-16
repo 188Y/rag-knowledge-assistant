@@ -48,6 +48,16 @@
             <h2>💬 向知识库提问</h2>
             <p class="desc">回答严格基于已上传的文档内容生成，并标注参考来源。</p>
 
+            <!-- 模式切换 -->
+            <div class="mode-switch">
+                <span class="mode-text" id="modeText">普通模式</span>
+                <label class="switch" title="切换 Agent 模式">
+                    <input type="checkbox" id="agentMode">
+                    <span class="slider"></span>
+                </label>
+                <span class="mode-hint" id="modeHint">单轮检索</span>
+            </div>
+
             <div class="chat" id="chat" aria-live="polite">
                 <div class="chat-empty" id="chatEmpty">
                     还没有对话，试试在下方输入问题，例如「年假怎么申请？」

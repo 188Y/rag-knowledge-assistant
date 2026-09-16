@@ -5,12 +5,13 @@ from openai import OpenAI
 from PyPDF2 import PdfReader
 from docx import Document
 from rag_engine import add_document, search_enhanced, list_documents
+from agent import run_agent
 
 load_dotenv()
 
 app = Flask(__name__)
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
+    api_key=os.getenv("ZHIPU_API_KEY"),
     base_url="https://open.bigmodel.cn/api/paas/v4"
 )
 
@@ -152,6 +153,35 @@ def upload_file():
     
     summary = generate_summary(content)
     return jsonify({"summary": summary})
+
+
+# ============ 新增路由：Agent 问答 ============
+@app.route('/ask_agent', methods=['POST'])
+def ask_agent():
+    """基于 Agent 的问答接口"""
+    data = request.get_json()
+    question = data.get('question', '').strip()
+    
+    if not question:
+        return jsonify({"error": "问题不能为空"}), 400
+    
+    try:
+        result = run_agent(question)
+        
+        # 提取来源
+        sources = list(set([
+            d["source"] for d in result.get("documents", [])
+            if d.get("source")
+        ]))
+        
+        return jsonify({
+            "answer": result["answer"],
+            "sources": sources,
+            "retry_count": result.get("retry_count", 0),
+        })
+    except Exception as e:
+        return jsonify({"error": f"Agent 运行失败: {str(e)}"}), 500
+    
 
 def generate_summary(text):
     """原有的摘要函数，保持不变"""
