@@ -16,6 +16,15 @@ rerank_model = CrossEncoder('BAAI/bge-reranker-base')
 # 全局缓存 BM25 索引
 _bm25_index = None
 _bm25_docs = None
+_bm25_metas = None
+
+
+def _invalidate_bm25_index():
+    """文档库发生变化后调用，让下一次检索重建 BM25 索引"""
+    global _bm25_index, _bm25_docs, _bm25_metas
+    _bm25_index = None
+    _bm25_docs = None
+    _bm25_metas = None
 
 # ============ 初始化本地 Embedding 模型 ============
 # 首次运行会自动下载模型（约 100MB），之后使用本地缓存
@@ -49,8 +58,18 @@ def split_text(text: str) -> list:
     )
     return splitter.split_text(text)
 
+def delete_document(doc_name: str) -> int:
+    """根据文档名称从向量库中删除其所有片段"""
+    all_data = collection.get(where={"source": doc_name})
+    ids = all_data.get("ids", [])
+    if ids:
+        collection.delete(ids=ids)
+        _invalidate_bm25_index()
+    return len(ids)
+
 def add_document(text: str, doc_name: str):
-    """将文档切分、向量化后存入向量库"""
+    """将文档切分、向量化后存入向量库（若已存在同名文档则先删除旧切片）"""
+    delete_document(doc_name)
     chunks = split_text(text)
     
     ids = []
@@ -71,6 +90,9 @@ def add_document(text: str, doc_name: str):
         embeddings=embeddings,
         metadatas=metadatas
     )
+    
+    # 新增文档后旧索引已不完整，下次检索时重建
+    _invalidate_bm25_index()
     
     return len(chunks)
 
@@ -135,24 +157,30 @@ def search_multi_query(question: str, top_k: int = 3) -> list:
 
 def build_bm25_index():
     """从向量库读取所有片段，构建 BM25 索引"""
-    global _bm25_index, _bm25_docs
+    global _bm25_index, _bm25_docs, _bm25_metas
     
     all_data = collection.get(include=["documents", "metadatas"])
     docs = all_data["documents"]
+    metas = all_data["metadatas"] or []
     
     if not docs:
+        _bm25_index = False
+        _bm25_docs = []
+        _bm25_metas = []
         return
     
     # 中文分词
     tokenized = [list(jieba.cut(doc)) for doc in docs]
     _bm25_index = BM25Okapi(tokenized)
     _bm25_docs = docs
+    # 保存 metadatas，否则检索结果无法还原真实文档名
+    _bm25_metas = metas
 
 def search_bm25(query: str, top_k: int = 5) -> list:
     """BM25 关键词检索"""
     if _bm25_index is None:
         build_bm25_index()
-    if _bm25_index is None:
+    if not _bm25_index:
         return []
     
     tokenized_query = list(jieba.cut(query))
@@ -162,13 +190,22 @@ def search_bm25(query: str, top_k: int = 5) -> list:
     top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
     
     results = []
+    seen = set()
     for i in top_indices:
-        if scores[i] > 0:
-            results.append({
-                "content": _bm25_docs[i],
-                "score": scores[i],
-                "source": "bm25"
-            })
+        if scores[i] <= 0:
+            continue
+        # 不同文档可能含重复段落，同一内容只保留一次，否则 RRF 会被重复计分
+        content = _bm25_docs[i]
+        if content in seen:
+            continue
+        seen.add(content)
+        
+        meta = _bm25_metas[i] if _bm25_metas and i < len(_bm25_metas) else {}
+        results.append({
+            "content": content,
+            "score": scores[i],
+            "source": (meta or {}).get("source", "unknown")
+        })
     return results
 
 def rrf_fusion(vector_results: list, bm25_results: list, k: int = 60) -> list:
@@ -182,11 +219,15 @@ def rrf_fusion(vector_results: list, bm25_results: list, k: int = 60) -> list:
         scores[key] = scores.get(key, 0) + 1 / (k + rank + 1)
         content_map[key] = r
     
-    # BM25 结果
+    # BM25 结果：同一片段只补充分数和 BM25 得分，
+    # 不覆盖向量路已带好的 source，否则真实文档名会被检索器名顶掉
     for rank, r in enumerate(bm25_results):
         key = r["content"][:50]
         scores[key] = scores.get(key, 0) + 1 / (k + rank + 1)
-        content_map[key] = r
+        if key in content_map:
+            content_map[key].setdefault("bm25_score", r.get("score"))
+        else:
+            content_map[key] = r
     
     # 按 RRF 分排序
     sorted_keys = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)

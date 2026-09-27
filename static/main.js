@@ -22,6 +22,7 @@ const modeHint = $("modeHint");
 
 const ACCEPT_RE = /\.(txt|pdf|docx)$/i;
 let currentFile = null;
+const chatHistory = [];
 
 /* ---------- 通用工具 ---------- */
 

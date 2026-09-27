@@ -1,19 +1,17 @@
 import os
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-from openai import OpenAI
+from zhipuai import ZhipuAI
 from PyPDF2 import PdfReader
 from docx import Document
-from rag_engine import add_document, search_enhanced, list_documents
+from config import ZHIPU_API_KEY, CHAT_MODEL
+from rag_engine import add_document, delete_document, search_enhanced, list_documents
 from agent import run_agent
 
 load_dotenv()
 
 app = Flask(__name__)
-client = OpenAI(
-    api_key=os.getenv("ZHIPU_API_KEY"),
-    base_url="https://open.bigmodel.cn/api/paas/v4"
-)
+client = ZhipuAI(api_key=ZHIPU_API_KEY)
 
 # ============ 原有函数保持不变 ============
 
@@ -69,9 +67,10 @@ def upload_knowledge():
 
 @app.route('/ask', methods=['POST'])
 def ask():
-    """基于知识库回答问题"""
+    """基于知识库回答问题（支持多轮对话上下文）"""
     data = request.get_json()
     question = data.get('question', '').strip()
+    history = data.get('history', [])
     
     if not question:
         return jsonify({"error": "问题不能为空"}), 400
@@ -89,23 +88,34 @@ def ask():
             for r in retrieved
         ])
         
-        # 3. 调用大模型生成回答
+        # 3. 构造请求消息（包含历史记录）
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一个严格基于资料回答问题的助手。"
+                    "请**只使用**下面提供的参考资料来回答问题。"
+                    "如果参考资料中没有相关信息，必须明确回答'资料中未提及'，"
+                    "绝对不要使用你自己的先验知识来补充或推断。"
+                    "回答时请尽量引用原文表述。\n\n"
+                    f"参考资料：\n{context}"
+                )
+            }
+        ]
+        # 拼接最近对话历史（最多取最近6条）
+        if history and isinstance(history, list):
+            for msg in history[-6:]:
+                role = msg.get("role")
+                content = (msg.get("content") or "").strip()
+                if role in ("user", "assistant") and content:
+                    messages.append({"role": role, "content": content})
+        
+        messages.append({"role": "user", "content": question})
+        
+        # 4. 调用大模型生成回答
         response = client.chat.completions.create(
-            model="glm-4-flash",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "你是一个严格基于资料回答问题的助手。"
-                        "请**只使用**下面提供的参考资料来回答问题。"
-                        "如果参考资料中没有相关信息，必须明确回答'资料中未提及'，"
-                        "绝对不要使用你自己的先验知识来补充或推断。"
-                        "回答时请尽量引用原文表述。\n\n"
-                        f"参考资料：\n{context}"
-                    )
-                },
-                {"role": "user", "content": question}
-            ],
+            model=CHAT_MODEL,
+            messages=messages,
             temperature=0.3
         )
         
@@ -128,45 +138,38 @@ def get_documents():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/delete_document', methods=['POST'])
+def delete_doc():
+    """从知识库中删除指定文档"""
+    data = request.get_json() or {}
+    filename = data.get('filename', '').strip()
+    if not filename:
+        return jsonify({"error": "文件名不能为空"}), 400
+    try:
+        count = delete_document(filename)
+        return jsonify({"message": f"已删除文档 {filename}（清理了 {count} 个片段）"})
+    except Exception as e:
+        return jsonify({"error": f"删除失败: {str(e)}"}), 500
+
 # ============ 原有路由保持 ============
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    """原有的摘要接口，保持不变"""
-    if 'file' not in request.files:
-        return jsonify({"error": "没有文件上传"}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "文件名为空"}), 400
-    
-    try:
-        content = extract_text_from_file(file)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    except Exception as e:
-        return jsonify({"error": f"文件解析失败: {str(e)}"}), 400
-    
-    summary = generate_summary(content)
-    return jsonify({"summary": summary})
-
-
 # ============ 新增路由：Agent 问答 ============
 @app.route('/ask_agent', methods=['POST'])
 def ask_agent():
-    """基于 Agent 的问答接口"""
+    """基于 Agent 的问答接口（返回包含 SQL 数据、计算结果与执行状态的丰富信息）"""
     data = request.get_json()
     question = data.get('question', '').strip()
+    history = data.get('history', [])
     
     if not question:
         return jsonify({"error": "问题不能为空"}), 400
     
     try:
-        result = run_agent(question)
+        result = run_agent(question, history=history)
         
         # 提取来源
         sources = list(set([
@@ -178,25 +181,12 @@ def ask_agent():
             "answer": result["answer"],
             "sources": sources,
             "retry_count": result.get("retry_count", 0),
+            "sql_result": result.get("sql_result", {}),
+            "calc_result": result.get("calc_result", ""),
+            "tool_errors": result.get("tool_errors", []),
         })
     except Exception as e:
         return jsonify({"error": f"Agent 运行失败: {str(e)}"}), 500
-    
-
-def generate_summary(text):
-    """原有的摘要函数，保持不变"""
-    try:
-        response = client.chat.completions.create(
-            model="glm-4-flash",
-            messages=[
-                {"role": "system", "content": "你是一个文档总结助手。请用简洁、清晰的中文，将用户提供的文本内容总结为200字以内的核心摘要。"},
-                {"role": "user", "content": f"请总结以下内容：\n{text[:3000]}"}
-            ],
-            temperature=0.5
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"调用API出错: {str(e)}"
 
 if __name__ == '__main__':
     app.run(debug=True)

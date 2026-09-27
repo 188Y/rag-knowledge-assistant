@@ -6,6 +6,7 @@ class AgentState(TypedDict):
     
     # 输入
     question: str                 # 用户原始问题
+    history: List[dict]           # 多轮对话历史，例如 [{'role': 'user', 'content': '...'}, {'role': 'assistant', 'content': '...'}]
     
     # 规划阶段
     queries: List[str]            # 当前要执行的检索查询
@@ -22,3 +23,9 @@ class AgentState(TypedDict):
     
     # 输出
     answer: str                   # 最终回答
+
+    tool_plan: List[dict]
+    calc_result: str
+    sql_query: str
+    sql_result: dict             # 含 text / columns / rows / success 等字段
+    tool_errors: List[str]       # 工具/规划失败的记录，便于排查，不影响主流程
