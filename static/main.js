@@ -68,7 +68,7 @@ function showStatus(kind, html) {
 
 agentMode.addEventListener("change", () => {
   const on = agentMode.checked;
-  modeText.textContent = on ? "🧠 Agent 模式" : "普通模式";
+  modeText.textContent = on ? "Agent 模式" : "普通模式";
   modeHint.textContent = on ? "多轮检索 · 自主规划" : "单轮检索";
 });
 
@@ -80,7 +80,7 @@ function selectFile(file) {
     clearFile();
     showStatus(
       "error",
-      `❌ 不支持的文件格式，仅支持 .txt / .pdf / .docx：${esc(file.name)}`,
+      `不支持的文件格式，仅支持 .txt / .pdf / .docx：${esc(file.name)}`,
     );
     return;
   }
@@ -88,11 +88,8 @@ function selectFile(file) {
   fileNameEl.textContent = file.name;
   fileNameEl.title = file.name;
   fileSizeEl.textContent = formatSize(file.size);
-  fileIconEl.textContent = file.name.toLowerCase().endsWith(".pdf")
-    ? "📕"
-    : file.name.toLowerCase().endsWith(".docx")
-      ? "📘"
-      : "📄";
+  const ext = (file.name.match(/\.([^.]+)$/)?.[1] || "txt").toUpperCase();
+  fileIconEl.textContent = ext;
   fileChip.classList.add("show");
   uploadStatus.classList.remove("show");
 }
@@ -126,7 +123,7 @@ $("fileRemove").addEventListener("click", clearFile);
 
 uploadBtn.addEventListener("click", async () => {
   if (!currentFile) {
-    showStatus("error", "❌ 请先选择文件");
+    showStatus("error", "请先选择文件");
     return;
   }
 
@@ -145,11 +142,11 @@ uploadBtn.addEventListener("click", async () => {
       method: "POST",
       body: formData,
     });
-    showStatus("success", `✅ ${esc(data.message || "上传成功")}`);
+    showStatus("success", esc(data.message || "上传成功"));
     clearFile();
     loadDocuments();
   } catch (error) {
-    showStatus("error", `❌ ${esc(error.message)}`);
+    showStatus("error", esc(error.message));
   } finally {
     uploadBtn.disabled = false;
     uploadBtn.textContent = "上传入库";
@@ -200,13 +197,15 @@ function renderBotMsg(div, answer, sources, retryCount, isAgent) {
     const sourceTags = unique
       .map((s) => `<span class="tag" title="${esc(s)}">${esc(s)}</span>`)
       .join("");
-    tags.push(`📎 参考来源：${sourceTags}`);
+    tags.push(
+      `<span class="sources-label">来源</span>${sourceTags}`,
+    );
   }
 
   if (isAgent) {
-    const meta = [`<span class="tag agent">🧠 Agent</span>`];
+    const meta = [`<span class="tag agent">Agent</span>`];
     if (typeof retryCount === "number") {
-      meta.push(`<span class="tag retry">🔄 检索 ${retryCount} 轮</span>`);
+      meta.push(`<span class="tag retry">检索 ${retryCount} 轮</span>`);
     }
     tags.push(meta.join(""));
   }
@@ -252,7 +251,7 @@ async function askQuestion() {
     );
   } catch (error) {
     typing.className = "msg bot error";
-    typing.textContent = "❌ " + error.message;
+    typing.textContent = error.message;
   } finally {
     askBtn.disabled = false;
     questionInput.focus();
@@ -274,17 +273,15 @@ function renderDocs(documents) {
 
   documents.forEach((name) => {
     const ext = (name.match(/\.([^.]+)$/)?.[1] || "txt").toUpperCase();
-    const icon = ext === "PDF" ? "📕" : ext === "DOCX" ? "📘" : "📄";
     const li = document.createElement("li");
     li.className = "doc-item";
     li.innerHTML =
-      `<span>${icon}</span>` +
       `<span class="name" title="${esc(name)}">${esc(name)}</span>` +
       `<span class="kind">${esc(ext)}</span>`;
     docList.appendChild(li);
   });
 
-  docCount.textContent = `${documents.length} 个`;
+  docCount.textContent = `${documents.length} 份`;
   docCount.hidden = false;
 }
 
@@ -295,7 +292,7 @@ async function loadDocuments() {
     const data = await fetchJSON("/documents");
     renderDocs(data.documents);
   } catch (error) {
-    docList.innerHTML = `<li class="doc-empty">❌ ${esc(error.message)}</li>`;
+    docList.innerHTML = `<li class="doc-empty">${esc(error.message)}</li>`;
     docCount.hidden = true;
   } finally {
     refreshBtn.disabled = false;

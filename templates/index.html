@@ -7,27 +7,31 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <header class="hero">
-            <h1>📚 RAG 知识库助手</h1>
-            <p>上传文档自动切分入库，提问时基于你的文档检索并生成回答，答案附参考来源。</p>
-        </header>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <span class="brand">RAG 知识库助手</span>
+            <span class="brand-sub">基于已上传文档检索作答</span>
+        </div>
+    </header>
 
+    <main class="container">
         <!-- 功能区 1：文档入库 -->
-        <section class="card">
-            <h2>📤 上传文档到知识库</h2>
-            <p class="desc">支持 .txt / .pdf / .docx，上传后文档会被切分并存入向量库。</p>
+        <section class="panel">
+            <div class="panel-head">
+                <span class="panel-index">01</span>
+                <h2>上传文档</h2>
+                <p class="desc">支持 .txt / .pdf / .docx，上传后自动切分并存入向量库。</p>
+            </div>
 
             <div class="dropzone" id="dropZone" role="button" tabindex="0"
                  aria-label="选择或拖拽文件上传">
-                <span class="dz-icon">🗂️</span>
                 把文件拖到这里，或点击选择
-                <div class="dz-formats">.txt · .pdf · .docx</div>
+                <div class="dz-formats">.txt&nbsp;·&nbsp;.pdf&nbsp;·&nbsp;.docx</div>
             </div>
             <input type="file" id="fileInput" accept=".txt,.pdf,.docx" hidden>
 
             <div class="file-chip" id="fileChip">
-                <span class="f-icon" id="fileIcon">📄</span>
+                <span class="f-icon" id="fileIcon">TXT</span>
                 <div class="f-meta">
                     <div class="f-name" id="fileName"></div>
                     <div class="f-size" id="fileSize"></div>
@@ -44,9 +48,12 @@
         </section>
 
         <!-- 功能区 2：知识库问答 -->
-        <section class="card">
-            <h2>💬 向知识库提问</h2>
-            <p class="desc">回答严格基于已上传的文档内容生成，并标注参考来源。</p>
+        <section class="panel">
+            <div class="panel-head">
+                <span class="panel-index">02</span>
+                <h2>知识库问答</h2>
+                <p class="desc">回答严格基于已入库文档生成，并标注参考来源。</p>
+            </div>
 
             <!-- 模式切换 -->
             <div class="mode-switch">
@@ -60,22 +67,23 @@
 
             <div class="chat" id="chat" aria-live="polite">
                 <div class="chat-empty" id="chatEmpty">
-                    还没有对话，试试在下方输入问题，例如「年假怎么申请？」
+                    还没有对话。在下方输入问题，例如「年假怎么申请？」
                 </div>
             </div>
 
             <div class="ask-row">
-                <input type="text" id="questionInput" placeholder="例如：年假怎么申请？"
+                <input type="text" id="questionInput" placeholder="输入问题，回车发送"
                        autocomplete="off">
                 <button class="btn btn-primary" id="askBtn">提问</button>
             </div>
         </section>
 
         <!-- 功能区 3：已入库文档 -->
-        <section class="card">
-            <div class="doc-head">
-                <h2>📋 已入库文档</h2>
-                <span class="badge" id="docCount" hidden></span>
+        <section class="panel">
+            <div class="panel-head">
+                <span class="panel-index">03</span>
+                <h2>已入库文档</h2>
+                <span class="count" id="docCount" hidden></span>
                 <span class="spacer"></span>
                 <button class="btn btn-ghost btn-icon" id="refreshBtn" title="刷新列表"
                         aria-label="刷新文档列表">⟳</button>
@@ -85,8 +93,8 @@
             </ul>
         </section>
 
-        <footer>基于 Flask + ChromaDB + GLM 构建 · 仅使用已上传文档作答</footer>
-    </div>
+        <footer>Flask + ChromaDB + GLM · 仅使用已上传文档作答</footer>
+    </main>
 
     <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>

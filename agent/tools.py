@@ -11,12 +11,13 @@ except ImportError:
     CALC_AVAILABLE = False
 
 
-def tool_vector_search(query: str, top_k: int = 3) -> List[Dict]:
+def tool_vector_search(query: str, top_k: int = 3, queries: List[str] = None) -> List[Dict]:
     """
     向量检索工具：基于语义相似度检索文档片段。
     适合：概念性、描述性问题。
+    queries：已改写好的多角度查询（来自 plan_node），传入则不再重复调用 LLM 改写。
     """
-    results = search_enhanced(query, top_k=top_k)
+    results = search_enhanced(query, top_k=top_k, queries=queries)
     return [
         {"content": r["content"], "source": r.get("source", "unknown")}
         for r in results
@@ -84,7 +85,9 @@ TOOLS = {
 def call_tool(name, query=None, top_k=3, **kwargs):
     if name not in TOOLS:
         raise ValueError(f"未知工具：{name}")
-    if name in ("vector_search", "keyword_search"):
+    if name == "vector_search":
+        return TOOLS[name](query, top_k=top_k, queries=kwargs.get("queries"))
+    if name == "keyword_search":
         return TOOLS[name](query, top_k=top_k)
     if name == "calculator":
         return TOOLS[name](query or kwargs.get("expression", ""))

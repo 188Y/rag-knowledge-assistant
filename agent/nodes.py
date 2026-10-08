@@ -389,7 +389,8 @@ def retrieve_node(state: AgentState) -> Dict:
 
         try:
             if name in ("vector_search", "keyword_search"):
-                for r in call_tool(name, query=query, top_k=3) or []:
+                extra_kwargs = {"queries": state.get("queries", [])} if name == "vector_search" else {}
+                for r in call_tool(name, query=query, top_k=3, **extra_kwargs) or []:
                     content = r.get("content", "")
                     key = content[:50]
                     if key and key not in existing_contents:
@@ -411,7 +412,9 @@ def retrieve_node(state: AgentState) -> Dict:
                     sql_texts.append(r["text"])
                 if r.get("sql"):
                     sql_statements.append(r["sql"])
-                if r.get("success") is not None:
+                if r.get("success"):
+                    # 只用成功的结果覆盖 rows/columns；失败的详情已在 text 里保留，
+                    # 否则计划里后面的查询失败会抹掉前面已查到的数据
                     sql_result = r
 
         except Exception as e:

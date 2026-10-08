@@ -10,6 +10,8 @@ import jieba
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 
+from config import CHAT_MODEL
+
 # 初始化 Rerank 模型
 rerank_model = CrossEncoder('BAAI/bge-reranker-base')
 
@@ -131,7 +133,7 @@ def rewrite_query(question: str) -> list:
 问题：{question}"""
     
     response = zhipu_client.chat.completions.create(
-        model="glm-4-flash",
+        model=CHAT_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7
     )
@@ -249,14 +251,21 @@ def rerank(query: str, candidates: list, top_k: int = 3) -> list:
     sorted_candidates = sorted(candidates, key=lambda x: x["rerank_score"], reverse=True)
     return sorted_candidates[:top_k]
 
-def search_enhanced(question: str, top_k: int = 3) -> list:
-    """阶段2的完整检索流程"""
-    # 1. 查询改写
-    queries = [question] + rewrite_query(question)
-    
+def search_enhanced(question: str, top_k: int = 3, queries: list = None) -> list:
+    """阶段2的完整检索流程。
+
+    queries 传入时直接复用已改写好的查询（如 Agent 的 plan_node 产出），
+    不再调用 LLM 重复改写；缺省时保持原行为：现场调用 LLM 改写。
+    """
+    if queries:
+        extra = [q for q in queries if q and q != question][:3]
+        used_queries = list(dict.fromkeys([question] + extra))
+    else:
+        used_queries = [question] + rewrite_query(question)
+
     # 2. 多路检索
     vector_results = []
-    for q in queries:
+    for q in used_queries:
         vector_results.extend(search(q, top_k=5))
     
     # 3. BM25 检索
