@@ -1,14 +1,10 @@
 # RAG 知识库助手
 
+**简体中文** | [English](README_EN.md)
+
 一个把 **RAG 检索**、**LangGraph Agent** 和 **Text2SQL** 拼在一起的问答 Demo：上传自己的文档当知识库，问它问题时它会先检索资料再回答，答不出就说"资料中未提及"；需要数字时还能自己查数据库、做计算。
 
-A Q&A demo combining **RAG retrieval**, a **LangGraph agent**, and **Text2SQL**: upload your own documents as a knowledge base, and it answers strictly from retrieved material — falling back to "not mentioned in the documents" when the sources don't cover it. When numbers are involved, it queries a SQLite database and does the math itself.
-
----
-
-## 中文
-
-### 功能
+## 功能
 
 - **知识库问答**：上传 `.txt` / `.pdf` / `.docx`，自动切分入库（ChromaDB）。回答严格基于检索到的片段，不靠模型先验知识编造，缺少依据时明确回答"资料中未提及"。
 - **混合检索**：LLM 多角度改写查询 → 向量检索（bge-small-zh）＋ BM25 关键词检索（jieba 分词）→ RRF 融合 → bge-reranker 精排取 Top-3。
@@ -17,7 +13,7 @@ A Q&A demo combining **RAG retrieval**, a **LangGraph agent**, and **Text2SQL**:
 - **文档管理**：前端可查看知识库现有文档、按文件名删除。
 - **多轮对话**：携带最近 6 条历史消息作为上下文。
 
-### 技术栈
+## 技术栈
 
 | 层次 | 选型 |
 | --- | --- |
@@ -29,7 +25,7 @@ A Q&A demo combining **RAG retrieval**, a **LangGraph agent**, and **Text2SQL**:
 | 编排 | LangGraph |
 | 计算 / 数据库 | sympy、SQLite |
 
-### 快速开始
+## 快速开始
 
 ```bash
 # 1. 安装依赖
@@ -52,7 +48,7 @@ python app.py          # 访问 http://127.0.0.1:5000
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-### 接口
+## 接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -62,11 +58,11 @@ export HF_ENDPOINT=https://hf-mirror.com
 | `GET` | `/documents` | 列出知识库中的文档 |
 | `POST` | `/delete_document` | 按文件名删除文档（JSON，字段 `filename`） |
 
-### 配置
+## 配置
 
 模型与检索参数集中在 `config.py`：`CHAT_MODEL`、`CHUNK_SIZE` / `CHUNK_OVERLAP`、`TOP_K_VECTOR` / `TOP_K_BM25` / `TOP_K_RERANK`、`MAX_RETRY`、`CHROMA_PATH`。
 
-### 目录结构
+## 目录结构
 
 ```
 my-summarizer/
@@ -89,93 +85,6 @@ my-summarizer/
 └── static/                # main.js / style.css
 ```
 
----
+## 许可
 
-## English
-
-### Features
-
-- **Knowledge-base Q&A** — Upload `.txt` / `.pdf` / `.docx`; the text is chunked and stored in ChromaDB. Answers are grounded strictly in retrieved chunks, never in the model's prior knowledge, and the assistant explicitly replies "not mentioned in the documents" when the sources fall short.
-- **Hybrid retrieval** — LLM query rewriting → vector search (bge-small-zh) plus BM25 keyword search (jieba tokenizer) → RRF fusion → bge-reranker re-ranking, keeping the top 3 chunks.
-- **Agent mode** — A LangGraph state machine `plan → tool_plan → retrieve → evaluate → generate`, where a failed evaluation loops back to `plan` (2 retries by default). Four tools are available: vector search, keyword search, a sympy calculator, and Text2SQL.
-- **Text2SQL** — Ask questions in plain language against SQLite. Two sample tables ship with the repo: `sales` and `strategy`, joinable by region for actual-vs-target comparisons.
-- **Document management** — List and delete knowledge-base documents from the UI.
-- **Multi-turn chat** — The last 6 messages are passed along as context.
-
-### Tech stack
-
-| Layer | Choice |
-| --- | --- |
-| Web framework | Flask |
-| LLM | Zhipu GLM-4-Flash (`zhipuai` SDK) |
-| Vector store | ChromaDB |
-| Embedding / re-ranking | `BAAI/bge-small-zh-v1.5`, `BAAI/bge-reranker-base` |
-| Keyword search | `rank_bm25` + `jieba` |
-| Orchestration | LangGraph |
-| Math / database | sympy, SQLite |
-
-### Getting started
-
-```bash
-# 1. Install dependencies
-pip install flask python-dotenv zhipuai PyPDF2 python-docx chromadb \
-  langchain-text-splitters sentence-transformers jieba rank-bm25 langgraph sympy
-
-# 2. Add your Zhipu API key
-echo "ZHIPU_API_KEY=your-key" > .env
-
-# 3. Build the sample database (required by Text2SQL)
-python data/init_db.py
-
-# 4. Run
-python app.py          # then open http://127.0.0.1:5000
-```
-
-The first launch downloads the two BGE models (a few hundred MB). If the download is slow, set a mirror first:
-
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-```
-
-### API
-
-| Method | Path | Description |
-| --- | --- | --- |
-| `POST` | `/upload_knowledge` | Upload a document into the knowledge base (form-data, field `file`) |
-| `POST` | `/ask` | Standard RAG question answering |
-| `POST` | `/ask_agent` | Agent answering; also returns `sql_result`, `calc_result`, `retry_count` |
-| `GET` | `/documents` | List documents in the knowledge base |
-| `POST` | `/delete_document` | Delete a document by filename (JSON, field `filename`) |
-
-### Configuration
-
-Model and retrieval settings live in `config.py`: `CHAT_MODEL`, `CHUNK_SIZE` / `CHUNK_OVERLAP`, `TOP_K_VECTOR` / `TOP_K_BM25` / `TOP_K_RERANK`, `MAX_RETRY`, and `CHROMA_PATH`.
-
-### Project layout
-
-```
-my-summarizer/
-├── app.py                 # Flask entry point and routes
-├── config.py              # Model and retrieval settings
-├── rag_engine.py          # Chunking, vector search, BM25, RRF, re-ranking
-├── agent/                 # LangGraph agent
-│   ├── graph.py           #   State graph assembly
-│   ├── nodes.py           #   plan / tool_plan / retrieve / evaluate / generate
-│   ├── tools.py           #   Vector search / keyword search / calculator / Text2SQL
-│   ├── state.py           #   AgentState definition
-│   └── runner.py          #   run_agent entry point
-├── sql_engine/            # Text2SQL
-│   ├── schema.py          #   Table descriptions fed to the LLM
-│   ├── text_to_sql.py     #   Natural language → SQL
-│   ├── executor.py        #   Execution and result formatting
-│   └── db.py              #   SQLite connection
-├── data/init_db.py        # Generates the sample sales.db
-├── templates/index.html   # Single-page frontend
-└── static/                # main.js / style.css
-```
-
----
-
-## License / 许可
-
-MIT License © 2026 188Y — see [LICENSE](LICENSE).
+MIT License © 2026 188Y — 详见 [LICENSE](LICENSE)。
