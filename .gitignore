@@ -13,6 +13,9 @@ build/
 dist/
 *.egg-info/
 .eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # ===== 虚拟环境 =====
 .venv/
@@ -31,6 +34,20 @@ logs/
 *.safetensors
 *.bin
 
+# ===== 数据库文件（由 data/init_db.py 生成） =====
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# ===== 本地工具 / 运行产物（不进仓库） =====
+.workbuddy/
+.zcodeignore
+.Trash-0/
+Trash-*/
+frames-*/
+*.tmp
+
 # ===== IDE / 编辑器 =====
 .vscode/
 .idea/
@@ -39,4 +56,6 @@ logs/
 
 # ===== 系统文件 =====
 .DS_Store
+._*
+desktop.ini
 Thumbs.db

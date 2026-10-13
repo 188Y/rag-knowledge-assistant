@@ -1,99 +1,117 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="zh-CN" data-page-node-id="wyAcJjeOPlVKjfaB59u2RY">
+<head data-page-node-id="xPtQMcUJVGwVNCCLPUOf8z">
+    <meta charset="UTF-8" data-page-node-id="PQhGYaLpMnKj3arSzxJu3e">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="JKU5yZ8KUdSNGTwSPwkByA">
     <title>RAG 知识库助手</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" data-page-node-id="qWZIssRXv5Ao8PPiRApY82">
 </head>
-<body>
-    <header class="topbar">
-        <div class="topbar-inner">
-            <span class="brand">RAG 知识库助手</span>
-            <span class="brand-sub">基于已上传文档检索作答</span>
+<body data-page-node-id="Es6ndtsgPcbYOkG0sIiHBj">
+    <header class="topbar" data-page-node-id="RQMi2c86ev1MamzGLYXJHj">
+        <div class="topbar-inner" data-page-node-id="hDxMF5MFYFzcv5NmzERt5c">
+            <div class="brand-group" data-page-node-id="rXrhWABCvMry7YuhwrrZyD">
+                <span class="brand" data-page-node-id="1wBzUrPplPhzOw1GqsaESj">RAG 知识库助手</span>
+                <span class="brand-sub" data-page-node-id="A6pxfDTFgZBLKyiOBQqhsy">回答只取自已入库文档</span>
+            </div>
         </div>
     </header>
 
-    <main class="container">
-        <!-- 功能区 1：文档入库 -->
-        <section class="panel">
-            <div class="panel-head">
-                <span class="panel-index">01</span>
-                <h2>上传文档</h2>
-                <p class="desc">支持 .txt / .pdf / .docx，上传后自动切分并存入向量库。</p>
-            </div>
+    <main class="container" data-page-node-id="lhytHpz96XYipSpvRDE4gC">
+        <!-- 步骤标尺：编号来自真实的三步流程，滚动时指示当前位置 -->
+        <nav class="rail" aria-label="页面结构" data-page-node-id="EYpASSxvT032sJe8x9CU1n">
+            <a class="rail-item" href="#s-upload" data-page-node-id="Fu6WDOKW0plkAPhwICxNba"><span class="rail-num" data-page-node-id="mX48rTsK1YPBQmcURrFYhZ">01</span><span class="rail-name" data-page-node-id="cFtYXA2HRqPlHjyrpwtVaD">上传文档</span></a>
+            <a class="rail-item" href="#s-ask" data-page-node-id="Nx0VEykF624O1WkZ1V3eXx"><span class="rail-num" data-page-node-id="80yksPDskzGvViXzUf5g4J">02</span><span class="rail-name" data-page-node-id="a6EtAQ9l12lkjpuWJssP1Q">知识库问答</span></a>
+            <a class="rail-item" href="#s-docs" data-page-node-id="PDAAENpu7XM1k9WvAxHVfZ"><span class="rail-num" data-page-node-id="YHMiNdO6rXdC7cPBnEGMF3">03</span><span class="rail-name" data-page-node-id="ZxWLOB3S8Mgh7Tk26jW63m">已入库文档</span></a>
+        </nav>
 
-            <div class="dropzone" id="dropZone" role="button" tabindex="0"
-                 aria-label="选择或拖拽文件上传">
-                把文件拖到这里，或点击选择
-                <div class="dz-formats">.txt&nbsp;·&nbsp;.pdf&nbsp;·&nbsp;.docx</div>
-            </div>
-            <input type="file" id="fileInput" accept=".txt,.pdf,.docx" hidden>
-
-            <div class="file-chip" id="fileChip">
-                <span class="f-icon" id="fileIcon">TXT</span>
-                <div class="f-meta">
-                    <div class="f-name" id="fileName"></div>
-                    <div class="f-size" id="fileSize"></div>
+        <div class="paper" data-page-node-id="GvUXGKQmjR7PCIqsiLTtlP">
+            <!-- 功能区 1：文档入库 -->
+            <section class="panel" id="s-upload" data-page-node-id="FP83IHdI0fFCyyPHkGwIDE">
+                <div class="panel-head" data-page-node-id="tnDhdF6BrQdIO7H4bxHAtR">
+                    <h2 data-page-node-id="HNkjT70u9qNAkDYMIqgimJ">上传文档</h2>
+                    <p class="desc" data-page-node-id="j72hlyFbv2sRDHc2g5fD1E">支持 .txt / .pdf / .docx，上传后自动切分并写入向量库。</p>
                 </div>
-                <button class="btn btn-ghost btn-icon" id="fileRemove" title="移除文件"
-                        aria-label="移除已选文件">✕</button>
-            </div>
 
-            <div class="upload-actions">
-                <button class="btn btn-primary" id="uploadBtn">上传入库</button>
-            </div>
-
-            <div class="status" id="uploadStatus" role="status" aria-live="polite"></div>
-        </section>
-
-        <!-- 功能区 2：知识库问答 -->
-        <section class="panel">
-            <div class="panel-head">
-                <span class="panel-index">02</span>
-                <h2>知识库问答</h2>
-                <p class="desc">回答严格基于已入库文档生成，并标注参考来源。</p>
-            </div>
-
-            <!-- 模式切换 -->
-            <div class="mode-switch">
-                <span class="mode-text" id="modeText">普通模式</span>
-                <label class="switch" title="切换 Agent 模式">
-                    <input type="checkbox" id="agentMode">
-                    <span class="slider"></span>
-                </label>
-                <span class="mode-hint" id="modeHint">单轮检索</span>
-            </div>
-
-            <div class="chat" id="chat" aria-live="polite">
-                <div class="chat-empty" id="chatEmpty">
-                    还没有对话。在下方输入问题，例如「年假怎么申请？」
+                <div class="dropzone" id="dropZone" role="button" tabindex="0"
+                     aria-label="选择或拖拽文件上传" data-page-node-id="fAwoCw1LUhYQZt2pN9YXjN">
+                    <span class="dz-main" data-page-node-id="WUGU2SYpkYqHfhOD2ZG8eo">把文件拖到这里，或点击选择</span>
+                    <span class="dz-formats" data-page-node-id="zYI9a3oFbQWaayPVN3voiQ">.txt · .pdf · .docx</span>
                 </div>
-            </div>
+                <input type="file" id="fileInput" accept=".txt,.pdf,.docx" hidden data-page-node-id="gy4qCCuzEWNPxmTjjD4raN">
 
-            <div class="ask-row">
-                <input type="text" id="questionInput" placeholder="输入问题，回车发送"
-                       autocomplete="off">
-                <button class="btn btn-primary" id="askBtn">提问</button>
-            </div>
-        </section>
+                <div class="file-chip" id="fileChip" data-page-node-id="XTHgZ8vJeRcYKBo3KGJSQy">
+                    <span class="f-icon" id="fileIcon" data-page-node-id="l6htgqaZEF3ChRnbxlgOv3">TXT</span>
+                    <div class="f-meta" data-page-node-id="ZS1xlMqvVAVjWKQvaw4qWI">
+                        <div class="f-name" id="fileName" data-page-node-id="0hAZZ5Z2JsTC1prV9Noyex"></div>
+                        <div class="f-size" id="fileSize" data-page-node-id="v43nKIPEPEAezyYU6aNiaG"></div>
+                    </div>
+                    <button class="btn btn-ghost btn-icon" id="fileRemove" title="移除文件"
+                            aria-label="移除已选文件" data-page-node-id="F2B45ZEDwhvr8qSSTlqDdA">✕</button>
+                </div>
 
-        <!-- 功能区 3：已入库文档 -->
-        <section class="panel">
-            <div class="panel-head">
-                <span class="panel-index">03</span>
-                <h2>已入库文档</h2>
-                <span class="count" id="docCount" hidden></span>
-                <span class="spacer"></span>
-                <button class="btn btn-ghost btn-icon" id="refreshBtn" title="刷新列表"
-                        aria-label="刷新文档列表">⟳</button>
-            </div>
-            <ul class="doc-list" id="docList">
-                <li class="doc-empty" id="docEmpty">正在加载…</li>
-            </ul>
-        </section>
+                <div class="upload-actions" data-page-node-id="5c9pcHJjheyub811oK0LJ4">
+                    <button class="btn btn-outline" id="uploadBtn" data-page-node-id="P0hrcvm7bR0kSPHBrYgFhy">上传入库</button>
+                </div>
 
-        <footer>Flask + ChromaDB + GLM · 仅使用已上传文档作答</footer>
+                <div class="status" id="uploadStatus" role="status" aria-live="polite" data-page-node-id="2Ak3Uq9M2TudpHkTxgYBXy"></div>
+            </section>
+
+            <!-- 功能区 2：知识库问答 -->
+            <section class="panel" id="s-ask" data-page-node-id="9wfotD2r6sSp5v0GUztN6j">
+                <div class="panel-head" data-page-node-id="zxJfYUCItUuRIRAl1KDGfC">
+                    <h2 data-page-node-id="eENUeFsneCpHekLlq6qziO">知识库问答</h2>
+                    <p class="desc" data-page-node-id="9qLlgIM2NP1Bv3VQcPRCPp">回答只来自检索到的片段，每一句都标出出处。</p>
+                </div>
+
+                <div class="mode-bar" data-page-node-id="i4rzVs38YQwuqTHrNjJf3P">
+                    <div class="seg" role="radiogroup" aria-label="回答模式" data-page-node-id="ltSnwndfjFURKT06FwwOaE">
+                        <label class="seg-item" data-page-node-id="OMem2zd58czs5GRj2icw2D">
+                            <input type="radio" name="mode" value="plain" checked data-page-node-id="40BZNs4j6751mb1HThAU2S">
+                            <span class="seg-label" data-page-node-id="PNR1FWCdyZJWeWGEUlDlDy">普通模式</span>
+                        </label>
+                        <label class="seg-item" data-page-node-id="M5JtB3zBmckRBBACvxYYXh">
+                            <input type="radio" name="mode" value="agent" data-page-node-id="cfIosKAEnmdfaGU7faK4bs">
+                            <span class="seg-label" data-page-node-id="ktQojhwg488PzRHrMzsos1">Agent 模式</span>
+                        </label>
+                        <span class="seg-thumb" aria-hidden="true" data-page-node-id="CVFGtd02jOgaW2p9IL86yI"></span>
+                    </div>
+                    <p class="mode-hint" id="modeHint" data-page-node-id="jWWPKxRrcIkWt6EC451DsY">单轮检索</p>
+                </div>
+
+                <div class="chat" id="chat" aria-live="polite" data-page-node-id="KFALTfNsGycJpAjwj0OfPx">
+                    <div class="chat-empty" id="chatEmpty" data-page-node-id="Jh5ksiE5OAw8jAFFEJ2oT2">
+                        <p class="chat-empty-lead" data-page-node-id="cm15fAvzgVJKUC9tFJhZxm">还没有对话，先试一条：</p>
+                        <div class="chat-examples" data-page-node-id="4sbpeaXCBrlCtjK7rxxg5g">
+                            <button type="button" class="example"
+                                    data-q="常用的网络命令有哪些？" data-page-node-id="GNIf9tR4biGxbb0W4kHWkM">常用的网络命令有哪些？</button>
+                            <button type="button" class="example"
+                                    data-q="pyqt 的信号与槽怎么连接？" data-page-node-id="5oCWwzzDO32MCUexxGpvEz">pyqt 的信号与槽怎么连接？</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ask-row" data-page-node-id="N7XADMrrBSjyBga3fSMRqh">
+                    <input type="text" id="questionInput" placeholder="输入问题，回车发送"
+                           autocomplete="off" data-page-node-id="whrftfJe0R3EYALMKyb5ec">
+                    <button class="btn btn-primary" id="askBtn" data-page-node-id="6UWd5s77r1nt4YC5QaJYdU">提问</button>
+                </div>
+            </section>
+
+            <!-- 功能区 3：已入库文档 -->
+            <section class="panel" id="s-docs" data-page-node-id="4Tm8EgvcEuDUsvDD9xlIAm">
+                <div class="panel-head" data-page-node-id="4aA5Ydln3VqFtu7iljbwV1">
+                    <h2 data-page-node-id="EK993rNST0JhCx0wv5vhLP">已入库文档</h2>
+                    <div class="head-tools" data-page-node-id="zYvwEP1SKnbeznXA2TItWU">
+                        <span class="count" id="docCount" hidden data-page-node-id="hefkI81OtgEsSYA7dTrapx"></span>
+                        <button class="btn btn-ghost btn-icon" id="refreshBtn" title="刷新列表"
+                                aria-label="刷新文档列表" data-page-node-id="wfyr8r0vf0L4zbcOGJkhB8">⟳</button>
+                    </div>
+                </div>
+                <ul class="doc-list" id="docList" data-page-node-id="DODxkpDnrRvAUc1YchTqlL">
+                    <li class="doc-empty" id="docEmpty" data-page-node-id="uFvoDEBrBIBwFaw8oHVHnr">正在加载…</li>
+                </ul>
+            </section>
+        </div>
     </main>
 
     <script src="{{ url_for('static', filename='main.js') }}"></script>
