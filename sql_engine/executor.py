@@ -13,10 +13,13 @@ _STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
 _ALLOWED_START_RE = re.compile(r"^\s*(select|with)\b", re.I)
 
 # 写操作关键字：CTE 里也可能藏写操作（WITH t AS (DELETE FROM ...) SELECT ...），
-# 所以不能只看首关键字，还要全句扫描
+# 所以不能只看首关键字，还要全句扫描；
+# load_extension 属于纵深防御补强——Python sqlite3 默认禁用扩展加载，
+# 但显式拦截更稳妥
 _WRITE_KEYWORD_RE = re.compile(
     r"\b(insert|update|delete|drop|alter|create|replace|attach|detach|"
-    r"pragma|vacuum|reindex|truncate|grant|revoke|begin|savepoint)\b",
+    r"pragma|vacuum|reindex|truncate|grant|revoke|begin|savepoint|"
+    r"load_extension)\b",
     re.I,
 )
 

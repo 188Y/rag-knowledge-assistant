@@ -29,8 +29,7 @@
 
 ```bash
 # 1. 安装依赖
-pip install flask python-dotenv zhipuai PyPDF2 python-docx chromadb \
-  langchain-text-splitters sentence-transformers jieba rank-bm25 langgraph sympy
+pip install -r requirements.txt
 
 # 2. 配置智谱 API Key
 echo "ZHIPU_API_KEY=你的key" > .env
@@ -41,6 +40,10 @@ python data/init_db.py
 # 4. 启动
 python app.py          # 访问 http://127.0.0.1:5000
 ```
+
+> 说明：示例数据库以"今天"为锚动态生成最近 3 个月的数据，任何时间初始化都能查到当月记录。
+> 启动默认关闭 debug（避免 reloader 双进程重复加载模型）；调试时用 `FLASK_DEBUG=1 python app.py`，
+> 对外部署建议 `waitress-serve --host 0.0.0.0 --port 5000 app:app`。
 
 首次启动会下载两个 BGE 模型（约数百 MB）。国内网络较慢时先执行：
 
@@ -54,7 +57,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 | --- | --- | --- |
 | `POST` | `/upload_knowledge` | 上传文档入库（form-data，字段 `file`） |
 | `POST` | `/ask` | 普通 RAG 问答 |
-| `POST` | `/ask_agent` | Agent 问答，额外返回 `sql_result` / `calc_result` / `retry_count` |
+| `POST` | `/ask_agent` | Agent 问答，额外返回 `sql_blocks`（多次查询逐块返回 SQL 原文与结果表）/ `calc_result` / `tool_errors` / `retry_count` |
 | `GET` | `/documents` | 列出知识库中的文档 |
 | `POST` | `/delete_document` | 按文件名删除文档（JSON，字段 `filename`） |
 

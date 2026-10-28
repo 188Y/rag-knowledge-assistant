@@ -1,17 +1,13 @@
 import os
 from flask import Flask, request, jsonify, render_template
-from dotenv import load_dotenv
-from zhipuai import ZhipuAI
 from PyPDF2 import PdfReader
 from docx import Document
-from config import ZHIPU_API_KEY, CHAT_MODEL
+from config import CHAT_MODEL, zhipu_client
 from rag_engine import add_document, delete_document, search_enhanced, list_documents
 from agent import run_agent
 
-load_dotenv()
-
 app = Flask(__name__)
-client = ZhipuAI(api_key=ZHIPU_API_KEY)
+client = zhipu_client
 
 # ============ 原有函数保持不变 ============
 
@@ -170,18 +166,19 @@ def ask_agent():
     
     try:
         result = run_agent(question, history=history)
-        
+
         # 提取来源
         sources = list(set([
             d["source"] for d in result.get("documents", [])
             if d.get("source")
         ]))
-        
+
         return jsonify({
             "answer": result["answer"],
             "sources": sources,
             "retry_count": result.get("retry_count", 0),
-            "sql_result": result.get("sql_result", {}),
+            # 每次成功查询一个块（sql/columns/rows/truncated），前端逐块渲染表格
+            "sql_blocks": result.get("sql_blocks", []),
             "calc_result": result.get("calc_result", ""),
             "tool_errors": result.get("tool_errors", []),
         })
@@ -189,4 +186,8 @@ def ask_agent():
         return jsonify({"error": f"Agent 运行失败: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # 默认关闭 debug：reloader 会 fork 出 watcher + worker 两个进程，
+    # 各加载一遍 bge 模型（内存翻倍、启动翻倍），且 Flask dev server 不适合长跑。
+    # 需要调试时：FLASK_DEBUG=1 python app.py
+    # 对外部署建议：waitress-serve --host 0.0.0.0 --port 5000 app:app
+    app.run(debug=os.getenv("FLASK_DEBUG") == "1")

@@ -7,7 +7,8 @@ SCHEMA_DESCRIPTION = """
 - product: TEXT，产品名，取值示例：产品A / 产品B / 产品C
 - amount: REAL，单笔销售金额（元）
 - quantity: INTEGER，单笔销售数量
-- sale_date: TEXT，销售日期，格式 YYYY-MM-DD（数据范围 2026-07 ~ 2026-09）
+- sale_date: TEXT，销售日期，格式 YYYY-MM-DD
+  （实际数据范围不在这里写死，由程序启动时查询 MIN/MAX(sale_date) 动态注入 prompt）
 
 【表2：strategy（年度策略）】
 - id: INTEGER，主键

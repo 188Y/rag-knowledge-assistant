@@ -23,6 +23,25 @@ const modeRadios = document.querySelectorAll('input[name="mode"]');
 const ACCEPT_RE = /\.(txt|pdf|docx)$/i;
 let currentFile = null;
 
+/* ---------- 多轮对话历史 ---------- */
+/* 后端 /ask 与 /ask_agent 都支持 history 参数（结合历史消除代词、注入生成上下文），
+   前端必须随请求带上最近几轮，多轮能力才是活的 */
+const HISTORY_LIMIT = 6; // 随请求发送的最近条数（约 3 轮问答）
+const HISTORY_CONTENT_MAX = 400; // 单条历史截断长度，避免请求体膨胀
+const chatHistory = [];
+
+function rememberTurn(role, content) {
+  if (!content) return;
+  if (content.length > HISTORY_CONTENT_MAX) {
+    content = content.slice(0, HISTORY_CONTENT_MAX) + "…（已截断）";
+  }
+  chatHistory.push({ role, content });
+  // 内存里也只保留最近若干条，防止长会话无限增长
+  if (chatHistory.length > HISTORY_LIMIT * 2) {
+    chatHistory.splice(0, chatHistory.length - HISTORY_LIMIT);
+  }
+}
+
 /* ---------- 通用工具 ---------- */
 
 function esc(s) {
@@ -224,18 +243,88 @@ function appendBotMsg() {
   return turn;
 }
 
+/* ---------- Agent 产出渲染：SQL 表格 / 计算器 / 工具异常 ---------- */
+
+const SQL_MAX_DISPLAY_ROWS = 50;
+
+/** 单个 SQL 块：SQL 原文折叠 + 结果表格（或空态）+ 截断提示 */
+function sqlBlockHtml(block, label) {
+  const columns = block.columns || [];
+  const rows = block.rows || [];
+
+  const src = block.sql
+    ? `<details class="sql-src"><summary>${esc(label)} · SQL 原文</summary><pre>${esc(block.sql)}</pre></details>`
+    : "";
+
+  let tableHtml;
+  if (!columns.length || !rows.length) {
+    tableHtml = '<div class="sql-empty">查询结果为空（该条件下没有数据记录）</div>';
+  } else {
+    const shown = rows.slice(0, SQL_MAX_DISPLAY_ROWS);
+    const head = `<tr>${columns.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>`;
+    const bodyRows = shown
+      .map(
+        (row) =>
+          `<tr>${columns
+            .map((c) => `<td>${esc(row[c] == null ? "" : row[c])}</td>`)
+            .join("")}</tr>`,
+      )
+      .join("");
+    tableHtml = `<div class="sql-table-wrap"><table class="sql-table"><thead>${head}</thead><tbody>${bodyRows}</tbody></table></div>`;
+    if (rows.length > SQL_MAX_DISPLAY_ROWS) {
+      tableHtml += `<div class="sql-note">共 ${rows.length} 行，仅展示前 ${SQL_MAX_DISPLAY_ROWS} 行</div>`;
+    }
+  }
+
+  if (block.truncated) {
+    tableHtml += '<div class="sql-note">结果行数过多，已被后端截断</div>';
+  }
+
+  return `<div class="sql-block">${src}${tableHtml}</div>`;
+}
+
+function renderSqlBlocks(blocks) {
+  const list = Array.isArray(blocks) ? blocks.filter((b) => b && (b.sql || b.columns)) : [];
+  if (!list.length) return "";
+  const html = list
+    .map((b, i) => sqlBlockHtml(b, list.length > 1 ? `查询 ${i + 1}` : "查询"))
+    .join("");
+  return `<div class="sql-section">${html}</div>`;
+}
+
 /**
  * 渲染机器人消息
  * @param {HTMLElement} turn 消息容器
- * @param {string} answer    回答正文
- * @param {string[]} sources 参考来源
- * @param {number|null} retryCount Agent 模式下的检索轮数
- * @param {boolean} isAgent  是否为 Agent 模式
+ * @param {object} data       接口返回（answer/sources/retry_count/sql_blocks/calc_result/tool_errors）
+ * @param {boolean} isAgent   是否为 Agent 模式
  */
-function renderBotMsg(turn, answer, sources, retryCount, isAgent) {
-  turn.querySelector(".turn-body").textContent = answer;
+function renderBotMsg(turn, data, isAgent) {
+  turn.querySelector(".turn-body").textContent = data.answer || "（未返回内容）";
 
-  const unique = [...new Set(sources || [])];
+  // 重渲染时先清掉旧扩展块
+  turn.querySelectorAll(".sql-section, .calc-result, .tool-errors, .sources").forEach((n) => n.remove());
+
+  if (isAgent) {
+    const sqlHtml = renderSqlBlocks(data.sql_blocks);
+    if (sqlHtml) turn.insertAdjacentHTML("beforeend", sqlHtml);
+
+    if (data.calc_result) {
+      turn.insertAdjacentHTML(
+        "beforeend",
+        `<div class="calc-result">计算器结果：${esc(data.calc_result)}</div>`,
+      );
+    }
+
+    if (Array.isArray(data.tool_errors) && data.tool_errors.length) {
+      const items = data.tool_errors.map((e) => `<li>${esc(e)}</li>`).join("");
+      turn.insertAdjacentHTML(
+        "beforeend",
+        `<div class="tool-errors"><div class="te-head">部分工具执行异常，以下回答可能不完整：</div><ul>${items}</ul></div>`,
+      );
+    }
+  }
+
+  const unique = [...new Set(data.sources || [])];
   const tags = [];
 
   if (unique.length > 0) {
@@ -247,20 +336,17 @@ function renderBotMsg(turn, answer, sources, retryCount, isAgent) {
 
   if (isAgent) {
     const meta = [`<span class="tag agent">Agent</span>`];
-    if (typeof retryCount === "number") {
-      meta.push(`<span class="tag retry">检索 ${retryCount} 轮</span>`);
+    if (typeof data.retry_count === "number") {
+      meta.push(`<span class="tag retry">检索 ${data.retry_count} 轮</span>`);
     }
     tags.push(meta.join(""));
   }
 
-  const old = turn.querySelector(".sources");
-  if (old) old.remove();
-
   if (tags.length > 0) {
-    const box = document.createElement("div");
-    box.className = "sources";
-    box.innerHTML = tags.join("");
-    turn.appendChild(box);
+    turn.insertAdjacentHTML(
+      "beforeend",
+      `<div class="sources">${tags.join("")}</div>`,
+    );
   }
 }
 
@@ -285,6 +371,7 @@ async function askQuestion() {
 
   removeChatEmpty();
   appendUserMsg(question);
+  rememberTurn("user", question);
   questionInput.value = "";
   const pending = appendBotMsg();
   scrollChat();
@@ -295,15 +382,15 @@ async function askQuestion() {
     const data = await fetchJSON(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({
+        question,
+        // 带上最近几轮对话，后端用它做查询改写（消解代词）与生成上下文注入
+        history: chatHistory.slice(-HISTORY_LIMIT),
+      }),
     });
-    renderBotMsg(
-      pending,
-      data.answer || "（未返回内容）",
-      data.sources,
-      typeof data.retry_count === "number" ? data.retry_count : null,
-      useAgent,
-    );
+    renderBotMsg(pending, data, useAgent);
+    // 成功才计入历史；失败的轮次不进上下文
+    rememberTurn("assistant", data.answer || "");
   } catch (error) {
     pending.classList.add("is-error");
     pending.querySelector(".turn-body").textContent = error.message;

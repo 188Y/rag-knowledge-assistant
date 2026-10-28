@@ -2,14 +2,13 @@ import json
 import re
 from typing import Dict, List
 
-from zhipuai import ZhipuAI
-
-from config import ZHIPU_API_KEY, CHAT_MODEL, MAX_RETRY, TOP_K_RERANK
+from config import CHAT_MODEL, MAX_RETRY, TOP_K_RERANK, zhipu_client
 from agent.state import AgentState
 from agent.tools import call_tool, TOOLS
+from rag_engine import documents_count
 
-# 初始化客户端
-client = ZhipuAI(api_key=ZHIPU_API_KEY)
+# 统一使用 config 里的共享客户端（key 缺失时 config 已在启动阶段给出明确报错）
+client = zhipu_client
 
 # 允许调度的工具名（防止模型幻觉出不存在的工具）
 ALLOWED_TOOLS = set(TOOLS.keys())
@@ -160,13 +159,28 @@ def plan_node(state: AgentState) -> Dict:
     question = state["question"]
     history = state.get("history", [])
     documents = state.get("documents", [])
-    sql_result = state.get("sql_result") or {}
+    sql_blocks = state.get("sql_blocks") or []
     calc_result = state.get("calc_result", "")
     tool_errors = state.get("tool_errors", [])
     round_no = state.get("retry_count", 0)
 
     # ----- 首次规划（第0轮）：把问题改写成多个检索角度，若有历史记录则结合上下文理解代词/语义 -----
-    if round_no == 0 and not documents and not sql_result.get("text") and not calc_result:
+    if round_no == 0 and not documents and not sql_blocks and not calc_result:
+        # 空知识库短路：改写出来的 query 也检索不到任何东西，白花一次 LLM 调用。
+        # 仍走 tool_plan（SQL / 计算器等工具不受知识库影响），检索类工具自然空转。
+        try:
+            knowledge_empty = documents_count() == 0
+        except Exception:
+            knowledge_empty = False
+
+        if knowledge_empty:
+            return {
+                "queries": [question],
+                "need_retrieve": True,
+                "need_retry": False,
+                "tool_errors": list(state.get("tool_errors", [])),
+            }
+
         hist_prompt = _format_history_prompt(history)
         prompt = f"""{hist_prompt}请结合上述背景（若有），把下面的当前问题改写成3个不同角度的检索查询，消除代词歧义，每行一个，不要编号：
 当前问题：{question}"""
@@ -186,7 +200,7 @@ def plan_node(state: AgentState) -> Dict:
             "need_retry": False,
             "tool_errors": errors,
         }
-    
+
     # ----- 再次规划：评估已有资料和工具产出是否够用 -----
     summary_sections = []
     if documents:
@@ -194,8 +208,12 @@ def plan_node(state: AgentState) -> Dict:
             [d.get("content", "")[:200] for d in documents[:TOP_K_RERANK]]
         )
         summary_sections.append(f"【已检索到的知识库资料】\n{doc_preview}")
-    if sql_result.get("text"):
-        summary_sections.append(f"【已获取的SQL查询结果】\n{sql_result['text'][:300]}")
+    if sql_blocks:
+        sql_text_preview = "\n---\n".join(
+            b.get("text", "")[:300] for b in sql_blocks[-2:] if b.get("text")
+        )
+        if sql_text_preview:
+            summary_sections.append(f"【已获取的SQL查询结果】\n{sql_text_preview}")
     if calc_result:
         summary_sections.append(f"【已计算结果】\n{calc_result}")
     if tool_errors:
@@ -263,14 +281,24 @@ def evaluate_node(state: AgentState) -> Dict:
 
     # 检查本轮工具产出状态：是否有文档、是否有 SQL 结果、是否有报错
     has_docs = bool(state.get("documents"))
-    sql_res = state.get("sql_result") or {}
-    has_sql = bool(sql_res.get("text") or sql_res.get("rows"))
+    sql_blocks = state.get("sql_blocks") or []
     has_calc = bool(state.get("calc_result"))
     tool_errors = state.get("tool_errors", [])
 
+    # 快速通道：首轮即拿到非空的 SQL 数据且全程无任何工具报错，
+    # 说明查询已命中且执行顺利（纯数据类问题的常见情形），
+    # 直接进入生成，跳过 plan 复核省一次 LLM 调用（典型节省 5~10 秒）。
+    # 注意：查到空结果不算命中——那正是希望 plan 换角度再试的场景。
+    if retry_count == 1 and not tool_errors and any(b.get("rows") for b in sql_blocks):
+        return {
+            "need_retry": False,
+            "retry_count": retry_count,
+            "evaluation": "首轮 SQL 查询已返回数据且无异常，跳过复核直接生成",
+        }
+
     # 如果没有任何有效工具产出，且存在报错，允许进入 plan 再重试调整
     # 如果没有任何有效产出也没有报错，说明确实没有相关内容，停止重试避免死循环
-    if not has_docs and not has_sql and not has_calc and not tool_errors:
+    if not has_docs and not sql_blocks and not has_calc and not tool_errors:
         return {
             "need_retry": False,
             "retry_count": retry_count,
@@ -295,7 +323,7 @@ def tool_plan_node(state: AgentState) -> Dict:
     candidate_hint = "、".join(queries) if queries else question
     retry_count = state.get("retry_count", 0)
     tool_errors = state.get("tool_errors", [])
-    sql_result = state.get("sql_result") or {}
+    sql_blocks = state.get("sql_blocks") or []
 
     # 如果是重试轮次，注入前序工具执行反馈与错误提示
     feedback_lines = []
@@ -305,8 +333,12 @@ def tool_plan_node(state: AgentState) -> Dict:
             feedback_lines.append("之前遇到以下异常，请调整工具或查询语句，避免重复相同错误：")
             for err in tool_errors[-3:]:
                 feedback_lines.append(f"- {err}")
-        if sql_result.get("text"):
-            feedback_lines.append(f"之前SQL查询已获得数据，如需对比或补充请针对性调用其它工具：\n{sql_result['text'][:200]}")
+        if sql_blocks:
+            prev_sql = "\n---\n".join(
+                b.get("text", "")[:200] for b in sql_blocks[-2:] if b.get("text")
+            )
+            if prev_sql:
+                feedback_lines.append(f"之前SQL查询已获得数据，如需对比或补充请针对性调用其它工具：\n{prev_sql}")
         feedback_lines.append("")
     feedback_prompt = "\n".join(feedback_lines)
     hist_prompt = _format_history_prompt(history) if retry_count == 0 else ""
@@ -362,6 +394,9 @@ def retrieve_node(state: AgentState) -> Dict:
     1. 每个工具单独 try/except —— 单个工具失败（网络/LLM 超时）不能拖垮整个 Agent；
     2. 新结果必须累加到历史结果上 —— state 没有 reducer，直接返回会把上一轮的
        web/calc/sql 产出覆盖掉，多轮检索时会"失忆"。
+       SQL 结果以 sql_blocks 列表逐次追加（每块含 sql/columns/rows），
+       不能只保留最后一次成功查询——否则第二轮补查返回空集时，
+       会把第一轮查到的 rows 抹掉，出现"答案说 42 万、表格却是空的"。
     """
     tool_plan = state.get("tool_plan", [])
     existing = state.get("documents", [])
@@ -369,9 +404,7 @@ def retrieve_node(state: AgentState) -> Dict:
 
     round_no = state.get("retry_count", 0)
     calc_results = [c for c in [state.get("calc_result", "")] if c]
-    sql_result = state.get("sql_result") or {}
-    sql_texts = [sql_result["text"]] if sql_result.get("text") else []
-    sql_statements = [s for s in [state.get("sql_query", "")] if s]
+    sql_blocks = [dict(b) for b in (state.get("sql_blocks") or [])]
     tool_errors = list(state.get("tool_errors", []))
     new_documents = []
 
@@ -408,30 +441,34 @@ def retrieve_node(state: AgentState) -> Dict:
 
             elif name == "sql_query":
                 r = call_tool("sql_query", query=query) or {}
-                if r.get("text"):
-                    sql_texts.append(r["text"])
-                if r.get("sql"):
-                    sql_statements.append(r["sql"])
                 if r.get("success"):
-                    # 只用成功的结果覆盖 rows/columns；失败的详情已在 text 里保留，
-                    # 否则计划里后面的查询失败会抹掉前面已查到的数据
-                    sql_result = r
+                    sql = r.get("sql", "")
+                    # 同一条 SQL 只入块一次（重试轮次常会重复生成相同语句）；
+                    # 空结果也算有效产出——"查过但没数据"本身就是信息
+                    if sql and not any(b.get("sql") == sql for b in sql_blocks):
+                        sql_blocks.append({
+                            "sql": sql,
+                            "columns": r.get("columns", []),
+                            "rows": r.get("rows", []),
+                            "truncated": r.get("truncated", False),
+                            "text": r.get("text", ""),
+                        })
+                else:
+                    # 失败详情并入 tool_errors：plan 复核和 generate 都能看到，
+                    # 也如实告诉用户"哪部分没取到"
+                    err_text = (r.get("text") or "").strip() or (r.get("error") or "未知错误")
+                    msg = f"sql_query 失败：{err_text}"
+                    if msg not in tool_errors:
+                        tool_errors.append(msg)
 
         except Exception as e:
             # 单工具失败只记录，继续执行其它工具
             tool_errors.append(f"{name} 执行失败：{e}")
 
-    if sql_texts:
-        merged = dict(sql_result)
-        # 多轮/多次查询的文本按出现顺序去重拼接，行/列取最近一次
-        merged["text"] = "\n\n".join(dict.fromkeys(sql_texts))
-        sql_result = merged
-
     return {
         "documents": existing + new_documents,
         "calc_result": "\n".join(dict.fromkeys(calc_results)),
-        "sql_query": "\n".join(dict.fromkeys(sql_statements)),
-        "sql_result": sql_result,
+        "sql_blocks": sql_blocks,
         "tool_errors": tool_errors,
     }
 
@@ -447,11 +484,11 @@ def generate_node(state: AgentState) -> Dict:
     history = state.get("history", [])
     documents = state.get("documents", [])
     calc_result = state.get("calc_result", "")
-    sql_result = state.get("sql_result") or {}
-    
+    sql_blocks = state.get("sql_blocks") or []
+
     # 各来源的产出拼成材料块，只要任一路有内容就不算"没找到"
     sections = []
-    
+
     if documents:
         # 多轮检索时优先保留最新一轮补检索到的资料
         selected = _select_documents(documents, TOP_K_RERANK)
@@ -460,22 +497,23 @@ def generate_node(state: AgentState) -> Dict:
             for d in selected
         ])
         sections.append(f"【知识库资料】\n{context}")
-    
+
     if calc_result:
         sections.append(f"【计算器结果】\n{calc_result}")
-    
-    if sql_result.get("text"):
-        sections.append(f"【SQL 查询结果】\n{sql_result['text']}")
-    
+
+    if sql_blocks:
+        sql_text = "\n\n".join(b.get("text", "") for b in sql_blocks if b.get("text"))
+        sections.append(f"【SQL 查询结果】\n{sql_text}")
+
     tool_errors = state.get("tool_errors", [])
     if tool_errors:
         # 让模型知道哪个工具失败了，避免把"工具失败"说成"材料中未提及"
         errors_text = "\n".join(dict.fromkeys(tool_errors))
         sections.append(f"【工具调用异常】\n{errors_text}")
-    
+
     if not sections:
         return {"answer": "知识库中没有找到相关资料，无法回答这个问题。"}
-    
+
     system_prompt = (
         "你是一个严格基于给定材料回答问题的助手。"
         "请只使用下面提供的材料来回答问题。"
@@ -483,6 +521,8 @@ def generate_node(state: AgentState) -> Dict:
         "绝对不要使用你自己的先验知识来补充或推断。"
         "其中计算器结果和 SQL 查询结果是工具直接产出的，"
         "属于权威结果，请直接采用，不需要再找资料佐证。"
+        "如果某条 SQL 查询结果为空，请如实说明'该时间段/条件下没有数据记录'，"
+        "并可结合材料中给出的数据范围解释原因，不要只说一句'查询结果为空'。"
         "如果材料中出现【工具调用异常】，说明对应工具本次调用失败，"
         "请如实说明该部分信息未能获取，不要编造。\n\n"
         + "\n\n".join(sections)

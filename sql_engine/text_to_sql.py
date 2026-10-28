@@ -1,12 +1,11 @@
 import datetime
 import re
 
-from zhipuai import ZhipuAI
-
-from config import ZHIPU_API_KEY, CHAT_MODEL
+from config import CHAT_MODEL, zhipu_client
 from sql_engine.schema import SCHEMA_DESCRIPTION
+from sql_engine.db import get_sales_date_range
 
-client = ZhipuAI(api_key=ZHIPU_API_KEY)
+client = zhipu_client
 
 # markdown 围栏（```sql / ```SQL / ```）与 "SQL:" 之类的前缀
 _FENCE_RE = re.compile(r"```[a-zA-Z]*")
@@ -15,6 +14,35 @@ _LABEL_RE = re.compile(r"^\s*(?:sql|查询语句|语句|result)\s*[:：]\s*", re
 _STATEMENT_RE = re.compile(
     r"(?:^|\n)\s*(?:sql\s*[:：]\s*)?((?:select|with)\b.*)", re.I | re.S
 )
+
+# 数据范围提示只查一次库并缓存（启动后 sales 数据不会变）
+_data_range_cache = None
+_data_range_loaded = False
+
+
+def _data_range_hint() -> str:
+    """sales 表的实际数据范围提示，动态查库注入 prompt。
+
+    原来 schema 里写死"数据范围 2026-07 ~ 2026-09"，随时间推移必然过时：
+    模型按"今天是 X"生成正确 SQL 却查到空集，用户观感是答非所问。
+    现在启动时查一次 MIN/MAX(sale_date)，显式告诉模型边界，
+    模型即可在需要时避免无意义的日期条件，或让下游知道该范围必然为空。
+    """
+    global _data_range_cache, _data_range_loaded
+    if not _data_range_loaded:
+        _data_range_loaded = True
+        try:
+            _data_range_cache = get_sales_date_range()
+        except Exception:
+            _data_range_cache = None
+    if not _data_range_cache:
+        return ""
+    lo, hi = _data_range_cache
+    return (
+        f"\n注意：sales 表实际数据范围是 {lo} ~ {hi}。"
+        f"若问题涉及的日期范围完全超出该区间，查询结果必然为空；"
+        f"此时仍按问题语义生成正确的 SQL 即可，不要为了查出数据而扭曲日期条件。\n"
+    )
 
 
 def clean_sql_output(text: str) -> str:
@@ -43,7 +71,7 @@ def natural_language_to_sql(question: str) -> str:
     prompt = f"""你是 SQL 生成助手。根据下面的数据库结构，把用户问题转成 SQLite 的 SELECT 语句。
 
 {SCHEMA_DESCRIPTION}
-
+{_data_range_hint()}
 参考示例：
 问题：华东区一共卖了多少钱？
 SQL: SELECT SUM(amount) AS total FROM sales WHERE region = '华东'

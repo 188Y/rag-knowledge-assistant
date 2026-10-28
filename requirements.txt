@@ -1,0 +1,17 @@
+# my-summarizer 依赖清单
+# 安装：pip install -r requirements.txt
+# 说明：版本为已验证可用的下限；如需完全复现原环境，
+#       可在自己机器上执行 pip freeze | grep -iE "flask|zhipu|chromadb|langgraph" 校准
+
+flask>=3.0
+python-dotenv>=1.0
+zhipuai>=2.0
+PyPDF2>=3.0
+python-docx>=1.1
+chromadb>=0.5
+langchain-text-splitters>=0.2
+sentence-transformers>=3.0
+jieba>=0.42
+rank-bm25>=0.2.2
+langgraph>=0.2
+sympy>=1.12

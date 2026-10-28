@@ -3,29 +3,30 @@ from typing import TypedDict, List
 #LangGraph 要求状态是字典结构 所以使用TypedDict
 class AgentState(TypedDict):
     """Agent 在整个流程中携带的状态"""
-    
+
     # 输入
     question: str                 # 用户原始问题
     history: List[dict]           # 多轮对话历史，例如 [{'role': 'user', 'content': '...'}, {'role': 'assistant', 'content': '...'}]
-    
+
     # 规划阶段
     queries: List[str]            # 当前要执行的检索查询
     need_retrieve: bool           # 是否需要检索
     need_retry: bool              # 是否需要再检索一轮
-    
+
     # 检索阶段
     documents: List[dict]         # 已检索到的文档片段
                                   # 每项格式：{"content": str, "source": str}
-    
+
     # 评估阶段
     retry_count: int              # 已重试次数
     evaluation: str               # 评估结论（"够了" / "不够"）
-    
+
     # 输出
     answer: str                   # 最终回答
 
     tool_plan: List[dict]
     calc_result: str
-    sql_query: str
-    sql_result: dict             # 含 text / columns / rows / success 等字段
-    tool_errors: List[str]       # 工具/规划失败的记录，便于排查，不影响主流程
+    sql_blocks: List[dict]        # 每次成功 SQL 查询一个块：{sql, columns, rows, truncated, text}
+                                  # 用列表累加而不是单个 dict 覆盖，
+                                  # 否则多轮/多次查询时前一轮的 rows 会被后一轮抹掉
+    tool_errors: List[str]        # 工具/规划失败的记录，便于排查，不影响主流程

@@ -1,45 +1,55 @@
 import os
-from dotenv import load_dotenv
-load_dotenv()
+import glob
 
 import chromadb
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
-from zhipuai import ZhipuAI
 import jieba
 from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 
-from config import CHAT_MODEL
+from config import CHAT_MODEL, CHROMA_PATH, COLLECTION_NAME, zhipu_client
 
-# 初始化 Rerank 模型
-rerank_model = CrossEncoder('BAAI/bge-reranker-base')
 
-# 全局缓存 BM25 索引
-_bm25_index = None
-_bm25_docs = None
-_bm25_metas = None
+# ============ 模型加载：优先使用本地缓存，避免启动时联网卡死 ============
+def _local_model_path(repo_dir_name: str, fallback_id: str) -> str:
+    """
+    优先返回 HuggingFace 本地缓存中的模型目录路径。
+    好处：加载本地目录不会联网（HF 在线检查在国内网络下经常卡死在 SSL 握手）。
+    本地没有缓存时回退为 repo id，由 sentence-transformers 联网下载（首次运行用）。
+    """
+    pattern = os.path.expanduser(f"~/.cache/huggingface/hub/{repo_dir_name}/snapshots/*/")
+    hits = sorted(glob.glob(pattern))
+    return hits[-1] if hits else fallback_id
+
+
+# 初始化 Rerank 模型（从本地缓存目录加载，离线可用）
+rerank_model = CrossEncoder(
+    _local_model_path("models--BAAI--bge-reranker-base", "BAAI/bge-reranker-base")
+)
+
+# BM25 索引采用不可变快照模式：重建时在局部变量里构建好完整的新对象，
+# 最后一次性替换整个元组引用（CPython 的赋值是原子的），读侧无锁也不会
+# 读到"半建索引"——比给三个全局变量分别加锁更简单也更快。
+# 快照取值：None = 尚未构建；False = 空库；(BM25Okapi, docs, metas) = 可用
+_bm25_snapshot = None
 
 
 def _invalidate_bm25_index():
     """文档库发生变化后调用，让下一次检索重建 BM25 索引"""
-    global _bm25_index, _bm25_docs, _bm25_metas
-    _bm25_index = None
-    _bm25_docs = None
-    _bm25_metas = None
+    global _bm25_snapshot
+    _bm25_snapshot = None
 
 # ============ 初始化本地 Embedding 模型 ============
-# 首次运行会自动下载模型（约 100MB），之后使用本地缓存
-# 如果下载慢，可以先在终端执行：export HF_ENDPOINT=https://hf-mirror.com
-embedding_model = SentenceTransformer('BAAI/bge-small-zh-v1.5')
+# 首次运行会自动下载模型（约 100MB），之后直接使用本地缓存目录，无需联网
+embedding_model = SentenceTransformer(
+    _local_model_path("models--BAAI--bge-small-zh-v1.5", "BAAI/bge-small-zh-v1.5")
+)
 
-# 初始化智谱客户端（用于查询改写和回答生成）
-zhipu_client = ZhipuAI(api_key=os.getenv("ZHIPU_API_KEY"))  
-
-# 初始化向量库（持久化到本地）
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+# 初始化向量库（持久化到本地，路径基于项目根目录，换目录启动不会静默新建空库）
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = chroma_client.get_or_create_collection(
-    name="documents",
+    name=COLLECTION_NAME,
     metadata={"hnsw:space": "cosine"}  # 使用余弦相似度
 )
 
@@ -127,6 +137,10 @@ def list_documents() -> list:
         sources.add(meta["source"])
     return list(sources)
 
+def documents_count() -> int:
+    """知识库中的片段总数（供 Agent 空库短路等判断使用）"""
+    return collection.count()
+
 def rewrite_query(question: str) -> list:
     """用大模型把问题改写成多个检索 query"""
     prompt = f"""请把下面的问题改写成3个不同角度的检索查询，每行一个，不要编号：
@@ -159,50 +173,50 @@ def search_multi_query(question: str, top_k: int = 3) -> list:
 
 def build_bm25_index():
     """从向量库读取所有片段，构建 BM25 索引"""
-    global _bm25_index, _bm25_docs, _bm25_metas
-    
+    global _bm25_snapshot
+
     all_data = collection.get(include=["documents", "metadatas"])
     docs = all_data["documents"]
     metas = all_data["metadatas"] or []
-    
+
     if not docs:
-        _bm25_index = False
-        _bm25_docs = []
-        _bm25_metas = []
+        _bm25_snapshot = False
         return
-    
+
     # 中文分词
     tokenized = [list(jieba.cut(doc)) for doc in docs]
-    _bm25_index = BM25Okapi(tokenized)
-    _bm25_docs = docs
-    # 保存 metadatas，否则检索结果无法还原真实文档名
-    _bm25_metas = metas
+    # 局部构建完成后整体替换引用：读侧要么拿到旧快照，要么拿到新快照，
+    # 永远不会拿到 "新 index + 旧 docs" 这种混搭
+    _bm25_snapshot = (BM25Okapi(tokenized), docs, metas)
 
 def search_bm25(query: str, top_k: int = 5) -> list:
     """BM25 关键词检索"""
-    if _bm25_index is None:
+    snapshot = _bm25_snapshot
+    if snapshot is None:
         build_bm25_index()
-    if not _bm25_index:
+        snapshot = _bm25_snapshot
+    if not snapshot:
         return []
-    
+
+    index, docs, metas = snapshot
     tokenized_query = list(jieba.cut(query))
-    scores = _bm25_index.get_scores(tokenized_query)
-    
+    scores = index.get_scores(tokenized_query)
+
     # 取 top_k
     top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
-    
+
     results = []
     seen = set()
     for i in top_indices:
         if scores[i] <= 0:
             continue
         # 不同文档可能含重复段落，同一内容只保留一次，否则 RRF 会被重复计分
-        content = _bm25_docs[i]
+        content = docs[i]
         if content in seen:
             continue
         seen.add(content)
-        
-        meta = _bm25_metas[i] if _bm25_metas and i < len(_bm25_metas) else {}
+
+        meta = metas[i] if metas and i < len(metas) else {}
         results.append({
             "content": content,
             "score": scores[i],
